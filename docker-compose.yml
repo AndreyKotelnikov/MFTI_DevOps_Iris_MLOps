@@ -1,0 +1,51 @@
+name: mlflow-iris
+services:
+  app:
+    build: .
+    container_name: iris-api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mlflow
+      - minio
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio2
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.6.0
+    container_name: mlflow
+    depends_on:
+      - minio
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_DEFAULT_REGION: us-east-1
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_S3_IGNORE_TLS: "true"
+    command: >
+      mlflow server
+        --host 0.0.0.0
+        --port 5000
+        --backend-store-uri sqlite:////mlflow/mlflow.db
+        --artifacts-destination s3://${MLFLOW_S3_BUCKET}
+    volumes:
+      - ./mlflow_data:/mlflow    # здесь будут mlflow.db, mlruns/mlartifacts
+    ports:
+      - "5000:5000"
+
+volumes:
+  minio-data:
+  mlflow_data:

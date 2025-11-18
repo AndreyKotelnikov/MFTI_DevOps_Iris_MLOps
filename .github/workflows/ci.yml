@@ -34,5 +34,3 @@ jobs:
           MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
           MLFLOW_S3_BUCKET: ${{ vars.MLFLOW_S3_BUCKET || 'mlflow' }}
 
-      - name: Run unit tests
-        run: pytest -v

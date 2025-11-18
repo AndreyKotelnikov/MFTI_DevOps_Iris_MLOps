@@ -1,11 +1,46 @@
 stages:
+  - build
   - test
+  - train
+  - report
+
+variables:
+  DOCKER_DRIVER: overlay2
+
+services:
+  - docker:dind
+
+build:
+  stage: build
+  image: docker:27
+  script:
+    - docker compose build
 
 test:
   stage: test
-  image: python:3.12-slim
-  before_script:
-    - python -m pip install --upgrade pip
-    - pip install -r requirements.txt
+  image: docker:27
   script:
-    - pytest -v
+    - docker compose up -d --build
+    - apk add --no-cache curl bash
+    - timeout 90 sh -c 'until curl -fsS http://host.docker.internal:5000 || curl -fsS http://mlflow:5000; do sleep 3; done'
+    - docker compose run --rm app pytest -q
+  artifacts:
+    when: always
+    paths:
+      - reports/
+
+train:
+  stage: train
+  image: docker:27
+  script:
+    - docker compose run --rm app python -m src.models.train
+
+report:
+  stage: report
+  image: docker:27
+  script:
+    - docker compose run --rm app python -m src.monitoring.data_quality_deepchecks
+    - docker compose run --rm app python -m src.monitoring.data_drift_evidently
+  artifacts:
+    paths:
+      - reports/

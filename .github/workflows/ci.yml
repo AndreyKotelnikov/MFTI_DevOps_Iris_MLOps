@@ -1,27 +1,55 @@
-name: CI
+name: iris-mlops-ci
 
 on:
   push:
-    branches: [ "main", "master" ]
   pull_request:
 
 jobs:
-  test:
+  build-test-train:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          lfs: true
 
-      - name: Install dependencies
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start stack (MinIO + MLflow + App)
+        run: docker compose up -d --build
+
+      - name: Wait for services
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          timeout 90 bash -c 'until curl -fsS http://localhost:5000/health || curl -fsS http://localhost:5000; do sleep 3; done'
+          timeout 90 bash -c 'until curl -fsS http://localhost:9001; do sleep 3; done'
 
-      - name: Run unit tests
-        run: pytest -v
+      - name: Create MinIO bucket
+        run: |
+          docker exec minio mc alias set local http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} || true
+          docker exec minio mc mb -p local/${MLFLOW_S3_BUCKET} || true
+        env:
+          MINIO_ROOT_USER: ${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+          MLFLOW_S3_BUCKET: ${{ vars.MLFLOW_S3_BUCKET || 'mlflow' }}
+
+      - name: Run tests
+        run: docker compose run --rm app pytest -q
+
+      - name: Train model (logs to MLflow/MinIO)
+        run: docker compose run --rm app python -m src.models.train
+        env:
+          # Если хотите — подставьте активный model_id из секретов/vars
+          MLFLOW_ACTIVE_MODEL_ID: ${{ vars.MLFLOW_ACTIVE_MODEL_ID }}
+
+      - name: Generate reports (Deepchecks & Evidently)
+        run: |
+          docker compose run --rm app python -m src.monitoring.data_quality_deepchecks
+          docker compose run --rm app python -m src.monitoring.data_drift_evidently
+
+      - name: Upload reports as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: reports/*

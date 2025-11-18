@@ -25,13 +25,23 @@ def run_data_quality_checks() -> Path:
     integrity_suite = data_integrity()
     integrity_result = integrity_suite.run(ds_train)
     integrity_path = REPORTS_DIR / "deepchecks_data_integrity.html"
-    integrity_result.save_as_html(str(integrity_path))
+    integrity_result.save_as_html(
+        file = str(integrity_path),
+        as_widget = False,
+        requirejs = False,
+        connected = False
+    )
     print(f"Deepchecks data integrity report saved to {integrity_path}")
 
     tt_suite = train_test_validation()
     tt_result = tt_suite.run(ds_train, ds_test)
     tt_path = REPORTS_DIR / "deepchecks_train_test_validation.html"
-    tt_result.save_as_html(str(tt_path))
+    tt_result.save_as_html(
+        file = str(tt_path),
+        as_widget = False,
+        requirejs = False,
+        connected = False
+    )
     print(f"Deepchecks train/test validation report saved to {tt_path}")
 
     return tt_path

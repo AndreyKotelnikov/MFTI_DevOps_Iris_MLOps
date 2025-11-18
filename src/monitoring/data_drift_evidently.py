@@ -1,38 +1,73 @@
 from pathlib import Path
 
-from evidently.metric_preset import DataDriftPreset, DataQualityPreset
-from evidently.report import Report
+import pandas as pd
+from sklearn import datasets
 
-from src.data.load_data import get_iris_data
+from evidently import Report
+from evidently.presets import DataDriftPreset, DataSummaryPreset
 
-REPORTS_DIR = Path("reports")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATA_PATH = PROJECT_ROOT / "data" / "iris_processed.csv"
+REPORTS_DIR = PROJECT_ROOT / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def run_data_drift_report() -> Path:
-    """Строит отчёт Evidently по качеству данных и дрейфу."""
-    X_train, X_test, y_train, y_test = get_iris_data()
+def load_iris_dataframe() -> pd.DataFrame:
+    """Загрузить данные iris либо из сохранённого CSV, либо из sklearn."""
+    if DATA_PATH.exists():
+        print(f"[Evidently] Использую подготовленный датасет: {DATA_PATH}")
+        df = pd.read_csv(DATA_PATH)
+        return df
 
-    ref = X_train.copy()
-    ref["target"] = y_train.values
+    print("[Evidently] Файл iris_processed.csv не найден, загружаю iris из sklearn")
+    iris = datasets.load_iris(as_frame=True)
+    df = iris.frame.copy()
+    # В свежем sklearn target уже есть в frame, но на всякий случай
+    if "target" not in df.columns:
+        df["target"] = iris.target
+    return df
 
-    cur = X_test.copy()
-    cur["target"] = y_test.values
 
+def split_reference_current(df: pd.DataFrame, reference_frac: float = 0.7, random_state: int = 42):
+    """Разделить на reference и current, чтобы эмулировать временной сдвиг."""
+    df_shuffled = df.sample(frac=1.0, random_state=random_state).reset_index(drop=True)
+    split_idx = int(len(df_shuffled) * reference_frac)
+    reference = df_shuffled.iloc[:split_idx].copy()
+    current = df_shuffled.iloc[split_idx:].copy()
+    return reference, current
+
+
+def run_evidently_reports():
+    df = load_iris_dataframe()
+    reference, current = split_reference_current(df)
+
+    # Конфиг репорта: дрейф + сводка по качеству данных
     report = Report(
         metrics=[
-            DataQualityPreset(),
-            DataDriftPreset(),
-        ]
+            DataDriftPreset(),    # общий дрейф фич
+            DataSummaryPreset(),  # сводные метрики качества данных
+        ],
+        include_tests=True,       # автоматически сгенерированные тесты
     )
 
-    report.run(reference_data=ref, current_data=cur)
+    # В Evidently 0.7.x run возвращает объект результата
+    result = report.run(
+        reference_data=reference,
+        current_data=current,
+    )
 
-    output_path = REPORTS_DIR / "evidently_data_drift_report.html"
-    report.save_html(str(output_path))
-    print(f"Evidently data drift report saved to {output_path}")
-    return output_path
+    html_path = REPORTS_DIR / "evidently_data_drift.html"
+    json_path = REPORTS_DIR / "evidently_data_drift.json"
+
+    # save_html / json вызываются у result
+    result.save_html(str(html_path))
+    with open(json_path, "w", encoding="utf-8") as f:
+        f.write(result.json())
+
+    print(f"[Evidently] HTML отчёт сохранён в: {html_path}")
+    print(f"[Evidently] JSON отчёт сохранён в: {json_path}")
 
 
 if __name__ == "__main__":
-    run_data_drift_report()
+    run_evidently_reports()

@@ -2,9 +2,11 @@ fastapi
 uvicorn[standard]
 gunicorn
 
-scikit-learn
+numpy>=1.25.2,<2.0.0
+scipy==1.16.3
+scikit-learn==1.7.2
+deepchecks==0.19.1
 pandas
-numpy
 joblib
 
 mlflow
@@ -17,6 +19,7 @@ seaborn
 matplotlib
 
 python-dotenv
+setuptools
 
 pytest
 requests

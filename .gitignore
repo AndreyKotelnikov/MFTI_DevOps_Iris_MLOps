@@ -15,3 +15,5 @@ build/
 reports/*.html
 data/raw/
 mlflow_data/
+models/
+reports/

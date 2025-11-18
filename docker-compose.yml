@@ -1,15 +1,24 @@
 name: mlflow-iris
+
 services:
   app:
     build: .
     container_name: iris-api
     env_file:
       - .env
+    environment:
+      # Трекать эксперименты в контейнерном MLflow
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     ports:
       - "8000:8000"
     depends_on:
       - mlflow
       - minio
+    volumes:
+      # Чтобы результаты были видны и на хосте
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
 
   minio:
     image: minio/minio:latest
@@ -25,7 +34,10 @@ services:
       - minio-data:/data
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v3.6.0
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    image: mlflow-with-boto3:3.6.0
     container_name: mlflow
     depends_on:
       - minio
@@ -35,14 +47,19 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       MLFLOW_S3_IGNORE_TLS: "true"
+#      MLFLOW_SERVER_ALLOWED_HOSTS: "mlflow,mlflow:5000,localhost,127.0.0.1"
+      # здесь важно, чтобы в .env было указано имя бакета
+      # MLFLOW_S3_BUCKET=mlflow-iris  (пример)
     command: >
       mlflow server
         --host 0.0.0.0
         --port 5000
         --backend-store-uri sqlite:////mlflow/mlflow.db
         --artifacts-destination s3://${MLFLOW_S3_BUCKET}
+        --allowed-hosts *
+        --cors-allowed-origins *
     volumes:
-      - ./mlflow_data:/mlflow    # здесь будут mlflow.db, mlruns/mlartifacts
+      - ./mlflow_data:/mlflow    # здесь будут mlflow.db и служебные файлы
     ports:
       - "5000:5000"
 

@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  build-test-train:
+  build-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -34,22 +34,5 @@ jobs:
           MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
           MLFLOW_S3_BUCKET: ${{ vars.MLFLOW_S3_BUCKET || 'mlflow' }}
 
-      - name: Run tests
-        run: docker compose run --rm app pytest -q
-
-      - name: Train model (logs to MLflow/MinIO)
-        run: docker compose run --rm app python -m src.models.train
-        env:
-          # Если хотите — подставьте активный model_id из секретов/vars
-          MLFLOW_ACTIVE_MODEL_ID: ${{ vars.MLFLOW_ACTIVE_MODEL_ID }}
-
-      - name: Generate reports (Deepchecks & Evidently)
-        run: |
-          docker compose run --rm app python -m src.monitoring.data_quality_deepchecks
-          docker compose run --rm app python -m src.monitoring.data_drift_evidently
-
-      - name: Upload reports as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: reports
-          path: reports/*
+      - name: Run unit tests
+        run: pytest -v

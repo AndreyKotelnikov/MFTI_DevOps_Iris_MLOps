@@ -1,0 +1,53 @@
+# docker build -f deploy/Dockerfile.api -t iris-api-standalone:0.0.1 .
+# docker run --rm -p 8000:8000 iris-api-standalone:0.0.1
+
+
+# ===== Стадия сборки (builder) =====
+FROM python:3.12-slim AS builder
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Берём общие зависимости проекта
+COPY requirements.txt .
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip wheel --no-cache-dir -r requirements.txt -w /wheels
+
+# Копируем исходники (нужны только для runtime-стадии)
+COPY src ./src
+# Копируем обученную модель из репозитория
+# ВАЖНО: models/iris_rf_model.pkl должен существовать ДО сборки образа
+COPY models/iris_rf_model.pkl ./models/iris_rf_model.pkl
+
+
+# ===== Стадия рантайма (runtime) =====
+FROM python:3.12-slim AS runtime
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Устанавливаем зависимости из заранее собранных колёс
+COPY --from=builder /wheels /wheels
+COPY requirements.txt .
+RUN pip install --no-index --find-links=/wheels -r requirements.txt && \
+    useradd -m appuser && \
+    chown -R appuser /app
+
+USER appuser
+
+# Копируем только то, что нужно для API и инференса
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/models ./models
+
+# Говорим inference'у, где лежит модель внутри контейнера
+ENV MODEL_DIR="models" \
+    MODEL_FILENAME="iris_rf_model.pkl"
+
+EXPOSE 8000
+
+# Запуск только API (FastAPI через Gunicorn + UvicornWorker)
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker src.api.main:app --bind 0.0.0.0:${PORT:-8000} --workers 2"]
